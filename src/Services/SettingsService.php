@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Collection;
 use Illuminate\Cache\TaggableStore;
 use Gigabait93\LaravelSettings\Models\Setting;
+
 class SettingsService
 {
     // ========== Public API ==========

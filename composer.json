@@ -23,7 +23,7 @@
         "Gigabait93\\LaravelSettings\\Providers\\LaravelSettingsServiceProvider"
       ],
       "aliases": {
-        "Settings": "Gigabait93\\LaravelSettings\\Facades\\Settings"
+        "LaravelSettings": "Gigabait93\\LaravelSettings\\Facades\\Settings"
       }
     }
   }
