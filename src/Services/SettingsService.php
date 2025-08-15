@@ -149,6 +149,26 @@ class SettingsService
         return $this->delete($key);
     }
 
+    public function forgetMany(array $keys): int
+    {
+        $keys = array_values(array_unique(array_filter($keys, fn ($k) => is_string($k) && $k !== '')));
+        if ($keys === []) {
+            return 0;
+        }
+
+        $deleted = Setting::query()->whereIn('key', $keys)->delete();
+        $store = Cache::getStore();
+        if ($store instanceof \Illuminate\Cache\TaggableStore) {
+            Cache::tags([$this->allTag()])->flush();
+        } else {
+            Cache::forget($this->allKey());
+            foreach ($keys as $k) {
+                Cache::forget($this->prefix().$k);
+            }
+        }
+        return $deleted;
+    }
+
     public function clearAllCache(): void
     {
         $store = Cache::getStore();
