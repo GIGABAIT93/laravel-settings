@@ -1,0 +1,30 @@
+{
+  "name": "gigabait93/laravel-settings",
+  "description": "Settings for Laravel.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.3",
+    "illuminate/support": "^12.0",
+    "illuminate/database": "^12.0",
+    "illuminate/cache": "^12.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Gigabait93\\LaravelSettings\\": "src/"
+    },
+    "files": [
+      "src/helpers.php"
+    ]
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Gigabait93\\LaravelSettings\\Providers\\LaravelSettingsServiceProvider"
+      ],
+      "aliases": {
+        "Settings": "Gigabait93\\LaravelSettings\\Facades\\Settings"
+      }
+    }
+  }
+}
