@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Collection;
 use Illuminate\Cache\TaggableStore;
 use Gigabait93\LaravelSettings\Models\Setting;
+use Illuminate\Database\QueryException;
 
 class SettingsService
 {
@@ -20,48 +21,64 @@ class SettingsService
     /** @return array<string, mixed> */
     public function all(): array
     {
-        if ($this->ttl() <= 0) {
-            return Setting::query()
-                ->get(['key','value'])
-                ->mapWithKeys(static fn (Setting $s): array => [$s->key => $s->value])
-                ->all();
+        try {
+            if ($this->ttl() <= 0) {
+                return Setting::query()
+                    ->get(['key','value'])
+                    ->mapWithKeys(static fn (Setting $s): array => [$s->key => $s->value])
+                    ->all();
+            }
+
+            $make = static function (): array {
+                return Setting::query()
+                    ->get(['key','value'])
+                    ->mapWithKeys(static fn (Setting $s): array => [$s->key => $s->value])
+                    ->all(); // ← масив
+            };
+
+            $store = Cache::getStore();
+
+            return $store instanceof TaggableStore
+                ? Cache::tags([$this->allTag()])->remember($this->allKey(), $this->ttl(), $make)
+                : Cache::remember($this->allKey(), $this->ttl(), $make);
+        } catch (QueryException $e) {
+            if ($this->isMissingTableException($e)) {
+                return [];
+            }
+
+            throw $e;
         }
-
-        $make = static function (): array {
-            return Setting::query()
-                ->get(['key','value'])
-                ->mapWithKeys(static fn (Setting $s): array => [$s->key => $s->value])
-                ->all(); // ← масив
-        };
-
-        $store = Cache::getStore();
-
-        return $store instanceof TaggableStore
-            ? Cache::tags([$this->allTag()])->remember($this->allKey(), $this->ttl(), $make)
-            : Cache::remember($this->allKey(), $this->ttl(), $make);
     }
 
     /** @return Collection<int, Setting> */
     public function find(string $prefix): Collection
     {
-        if ($this->ttl() <= 0) {
-            return Setting::query()
-                ->where('key', 'like', $prefix.'%')
-                ->get(['key','value']);
+        try {
+            if ($this->ttl() <= 0) {
+                return Setting::query()
+                    ->where('key', 'like', $prefix.'%')
+                    ->get(['key','value']);
+            }
+
+            $ck = $this->prefix().'__find__:'.$prefix;
+
+            $cache = $this->cacheTags([$this->allTag()]);
+
+            /** @var Collection $res */
+            $res = $cache->remember($ck, $this->ttl(), function () use ($prefix) {
+                return Setting::query()
+                    ->where('key', 'like', $prefix.'%')
+                    ->get(['key','value']);
+            });
+
+            return $res;
+        } catch (QueryException $e) {
+            if ($this->isMissingTableException($e)) {
+                return collect();
+            }
+
+            throw $e;
         }
-
-        $ck = $this->prefix().'__find__:'.$prefix;
-
-        $cache = $this->cacheTags([$this->allTag()]);
-
-        /** @var Collection $res */
-        $res = $cache->remember($ck, $this->ttl(), function () use ($prefix) {
-            return Setting::query()
-                ->where('key', 'like', $prefix.'%')
-                ->get(['key','value']);
-        });
-
-        return $res;
     }
 
     public function has(string $key): bool
@@ -71,19 +88,27 @@ class SettingsService
 
     public function get(string $key, $default = null)
     {
-        if ($this->ttl() <= 0) {
-            return Setting::getByKey($key) ?? $default;
+        try {
+            if ($this->ttl() <= 0) {
+                return Setting::getByKey($key) ?? $default;
+            }
+
+            $cacheKey = $this->prefix().$key;
+            $cb = fn () => Setting::getByKey($key);
+
+            $store = Cache::getStore();
+            $val = $store instanceof TaggableStore
+                ? Cache::tags([$this->allTag(), $this->keyTag($key)])->remember($cacheKey, $this->ttl(), $cb)
+                : Cache::remember($cacheKey, $this->ttl(), $cb);
+
+            return $val ?? $default;
+        } catch (QueryException $e) {
+            if ($this->isMissingTableException($e)) {
+                return $default;
+            }
+
+            throw $e;
         }
-
-        $cacheKey = $this->prefix().$key;
-        $cb = fn () => Setting::getByKey($key);
-
-        $store = Cache::getStore();
-        $val = $store instanceof TaggableStore
-            ? Cache::tags([$this->allTag(), $this->keyTag($key)])->remember($cacheKey, $this->ttl(), $cb)
-            : Cache::remember($cacheKey, $this->ttl(), $cb);
-
-        return $val ?? $default;
     }
 
     public function many(array $keys): array
@@ -188,7 +213,7 @@ class SettingsService
     private function allKey(): string { return config('settings.cache.all_key'); }
     private function allTag(): string { return config('settings.cache.tag_all'); }
     private function keyTag(string $k): string { return config('settings.cache.tag_key_prefix').$k; }
-    private function cacheTags(array $tags = null)
+    private function cacheTags(?array $tags = null)
     {
         $store = Cache::getStore();
         return $store instanceof TaggableStore && $tags
@@ -205,5 +230,14 @@ class SettingsService
             Cache::forget($this->allKey());
             Cache::forget($this->prefix().$key);
         }
+    }
+
+    private function isMissingTableException(QueryException $e): bool
+    {
+        $message = strtolower($e->getMessage());
+
+        return str_contains($message, 'no such table')
+            || str_contains($message, 'base table or view not found')
+            || str_contains($message, 'relation "settings" does not exist');
     }
 }
